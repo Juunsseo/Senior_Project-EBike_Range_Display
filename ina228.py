@@ -81,7 +81,7 @@ INA228_ADCRANGE_NBIT = 4
 # 0xEh = Continuous temperature and shunt voltage
 # 0xFh = Continuous bus voltage, shunt voltage and temperature (default)
 #############################################################
-INA228_ADC_MODE = 0xB
+INA228_ADC_MODE = 0xF
 INA228_ADC_MODE_NBIT = 12
 
 #############################################################
@@ -343,7 +343,7 @@ class INA228:
         temp = self.__convert2comp2float(raw, 16, conversion_factor)
         print('Die temp: ', temp)
         return temp
-
+    
     def get_current(self):        
         raw = self.read_register24(self.__INA228_CURRENT)
         current = self.__convert2comp2float(raw >> 4, 20, self.get_current_lsb())
