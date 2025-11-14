@@ -1,76 +1,79 @@
+# main.py
+import uasyncio as asyncio
 from machine import I2C, Pin
-import time
 from ina228 import INA228
-from epaper_driver import EPD_3in7   # rename your e-ink file to Pico_ePaper_3in7.py
+
+from ble import ble_update, peripheral_task
+from display import sensor_data, display_task
+from ble import rx_value
+from ble import rx_task
 
 
 
-# ======== INA228 Setup ========
+
+# =========================================================
+# INA228 SETUP
+# =========================================================
 i2c = I2C(0, sda=Pin(0), scl=Pin(1), freq=400000)
+
 ina = INA228(i2c=i2c, address=0x40, shunt_ohms=0.015)
 ina.reset_all()
-time.sleep_ms(3)
 ina.set_config()
 ina.set_adc_config()
 ina.shunt_calib()
 ina.shunt_tempco()
 
-# ==============================================================
-# BIG TEXT SCALING — works with any Waveshare e-paper FrameBuffer
-# ==============================================================
-import framebuf
 
-def draw_big_text(fb, text, x, y, color=0x00, scale=3):
-    """Render larger text by scaling MicroPython's 8×8 built-in font."""
-    temp_fb = framebuf.FrameBuffer(bytearray(8 * 8 // 8), 8, 8, framebuf.MONO_HLSB)
-
-    for idx, ch in enumerate(text):
-        temp_fb.fill(1)                # white bg
-        temp_fb.text(ch, 0, 0, 0)      # draw small glyph in black
-
-        # scale each pixel
-        for yy in range(8):
-            for xx in range(8):
-                if temp_fb.pixel(xx, yy) == 0:  # black pixel
-                    for dy in range(scale):
-                        for dx in range(scale):
-                            fb.pixel(
-                                x + idx * 8 * scale + xx * scale + dx,
-                                y + yy * scale + dy,
-                                color
-                            )
+# =========================================================
+# Battery % helper
+# =========================================================
+def estimate_battery(voltage):
+    MIN = 36.0
+    MAX = 54.0
+    percent = int((voltage - MIN) / (MAX - MIN) * 100)
+    return max(0, min(100, percent))
 
 
+# =========================================================
+# SENSOR POLLING
+# =========================================================
+async def sensor_poll_task():
+    while True:
+        v = ina.get_vbus_voltage()
+        c = ina.get_current()
+        p = ina.get_power()
+        t = ina.get_temp_voltage()
+        batt = estimate_battery(v)
 
-# ======== E-ink Setup ========
-epd = EPD_3in7()
-epd.image1Gray.fill(0xff)  # White
-epd.EPD_3IN7_1Gray_init()
-epd.EPD_3IN7_1Gray_Clear()
+        # Update BLE
+        ble_update(v, c, p, t, batt)
 
-# ======== Timers ========
-last_display = time.ticks_ms()
-display_interval = 1000  # update every 5 seconds
+        # Update display data
+        sensor_data["voltage"] = v
+        sensor_data["current"] = c * 1000
+        sensor_data["power"] = p
 
-while True:
-    vbus   = ina.get_vbus_voltage()
-    vshunt = ina.get_shunt_voltage() * 1e3
-    curr   = ina.get_current() * 1e3
-    pwr    = ina.get_power()
+        print(f"V={v:.3f}V I={c:.3f}A P={p:.2f}W")
+        if rx_value is not None:
+            num = int(rx_value.decode())
+            print("Phone sent:", num)
 
-    print("V=%.5fV I=%.5fmA P=%.5fW" % (vbus, curr, pwr))
 
-    if time.ticks_diff(time.ticks_ms(), last_display) > display_interval:
-        last_display = time.ticks_ms()
+        await asyncio.sleep(1)
 
-        epd.image1Gray.fill(0xff)  # clear
 
-        # --- Bigger text with scaling ---
-        draw_big_text(epd.image1Gray, "Battery Monitor", 20, 20, epd.black, scale=2)
-        draw_big_text(epd.image1Gray, "V: %.4fV" % vbus, 10, 90, epd.black, scale=3)
-        draw_big_text(epd.image1Gray, "I: %.5fmA" % curr, 10, 140, epd.black, scale=2)
-        draw_big_text(epd.image1Gray, "P: %.4fW" % pwr, 10, 190, epd.black, scale=3)
+# =========================================================
+# MAIN EVENT LOOP
+# =========================================================
+async def main():
+    await asyncio.gather(
+        sensor_poll_task(),
+        peripheral_task(),
+        display_task(),
+        rx_task(),          # <-- new
 
-        epd.EPD_3IN7_1Gray_Display_Part(epd.buffer_1Gray)
+    )
 
-    time.sleep(0.5)
+
+asyncio.run(main())
+

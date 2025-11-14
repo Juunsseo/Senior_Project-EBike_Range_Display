@@ -3,8 +3,9 @@ import asyncio
 import aioble
 import bluetooth
 import struct
-from machine import I2C, Pin
-from ina228 import INA228
+
+rx_value = None
+from display import sensor_data   # ADD THIS at top of ble.py
 
 # =========================================================
 # BLE OFFICIAL SIG UUIDs
@@ -20,24 +21,14 @@ _POWER_UUID         = bluetooth.UUID(0x2726)  # Power (uint16, W)
 _BATTERY_LEVEL_UUID = bluetooth.UUID(0x2A19)  # Battery Level (%)
 _TEMPERATURE_UUID   = bluetooth.UUID(0x2A6E)  # Temperature (sint16, 0.01°C)
 
+_RX_UUID = bluetooth.UUID("12345678-1234-5678-1234-56789abcdef0")	#data from phone
+
 # =========================================================
 # Advertising config
 # =========================================================
 
 _ADV_APPEARANCE_GENERIC_SENSOR = const(1344)
 _ADV_INTERVAL_US = const(250_000)
-
-# Battery level estimation (adjust for your pack)
-_BATTERY_MIN_VOLTAGE = 36.0
-_BATTERY_MAX_VOLTAGE = 54.0
-
-# =========================================================
-# INA228 Setup
-# =========================================================
-
-_I2C = I2C(0, sda=Pin(0), scl=Pin(1), freq=400000)
-_INA = INA228(i2c=_I2C, address=0x40, shunt_ohms=0.015)
-_INA.configure()
 
 # =========================================================
 # BLE Services + Characteristics
@@ -65,95 +56,133 @@ temperature_ch = aioble.Characteristic(
     battery_service, _TEMPERATURE_UUID, read=True, notify=True
 )
 
+rx_ch = aioble.Characteristic(
+    battery_service,
+    _RX_UUID,
+    read=False,
+    write=True,        # <-- allow phone → Pico write
+    notify=False
+)
+
 aioble.register_services(battery_service)
 
 # =========================================================
-# Battery Level Estimation
+# Whitelist: "trust first phone, block others"
 # =========================================================
 
-def estimate_battery_level(voltage: float) -> int:
-    span = _BATTERY_MAX_VOLTAGE - _BATTERY_MIN_VOLTAGE
-    if span <= 0:
-        return 0
-    level = int(round((voltage - _BATTERY_MIN_VOLTAGE) / span * 100))
-    return max(0, min(100, level))
+# (addr_type, addr_bytes) of the one "owner" device.
+_authorized_peer = None  # type: tuple[int, bytes] | None
+
+
+def _format_peer(dev) -> tuple[int, bytes]:
+    """Return a stable representation (addr_type, addr_bytes)."""
+    return (dev.addr_type, bytes(dev.addr))
+
 
 # =========================================================
-# SENSOR TASK — Standard SIG Formats
+# API for main.py to push sensor data into BLE
 # =========================================================
 
-async def sensor_task():
+def ble_update(voltage: float, current: float, power: float,
+               temperature: float, battery_level: int) -> None:
+    """
+    Update all BLE characteristics and notify any connected central.
+
+    voltage      : Volts (float)
+    current      : Amps  (float)
+    power        : Watts (float)
+    temperature  : Deg C (float)
+    battery_level: Percent 0–100 (int)
+    """
+    # Standard Bluetooth SIG encodings:
+
+    # VOLTAGE (0x2B18) — uint16, mV
+    v_mv = int(voltage * 1000)
+    voltage_ch.write(struct.pack("<H", v_mv), send_update=True)
+
+    # CURRENT (0x2704) — sint16, mA
+    i_ma = int(current * 1000)
+    current_ch.write(struct.pack("<h", i_ma), send_update=True)
+
+    # POWER (0x2726) — uint16, W
+    p_w = int(power)
+    if p_w < 0:
+        p_w = 0
+    if p_w > 0xFFFF:
+        p_w = 0xFFFF
+    power_ch.write(struct.pack("<H", p_w), send_update=True)
+
+    # TEMPERATURE (0x2A6E) — sint16, 0.01°C
+    t_100 = int(temperature * 100)
+    temperature_ch.write(struct.pack("<h", t_100), send_update=True)
+
+    # BATTERY LEVEL (0x2A19) — uint8, %
+    lvl = max(0, min(100, int(battery_level)))
+    battery_ch.write(struct.pack("B", lvl), send_update=True)
+
+
+# =========================================================
+# BLE Peripheral — Advertising / Connections with whitelist / Wait for rx from Phone
+# =========================================================
+
+
+async def rx_task():
+    global rx_value
+
     while True:
-        try:
-            vbus = _INA.get_vbus_voltage()       # Volts
-            current = _INA.get_current()         # Amps
-            power = _INA.get_power()             # Watts
-            temperature = _INA.get_temp_voltage()  # °C
-        except Exception as exc:
-            print("INA228 read error:", exc)
-            await asyncio.sleep_ms(500)
-            continue
+        conn = await rx_ch.written()
+        data = rx_ch.read()       # <-- actual bytes from the phone
 
-        # ---------------------------------------------------------------------
-        # Standard Bluetooth SIG Encodings
-        # ---------------------------------------------------------------------
+        if isinstance(data, (bytes, bytearray)):
+            rx_value = data
+            text = data.decode("utf-8", "ignore")
+            print("RX DATA =", text)
 
-        # VOLTAGE (0x2B18) — uint16, unit: mV
-        voltage_mv = int(vbus * 1000)
-        voltage_ch.write(struct.pack("<H", voltage_mv), send_update=True)
+            # UPDATE DISPLAY SHARED VALUE
+            sensor_data["rx"] = text
 
-        # CURRENT (0x2704) — sint16, unit: mA
-        current_ma = int(current * 1000)
-        current_ch.write(struct.pack("<h", current_ma), send_update=True)
+        await asyncio.sleep(0.01)
 
-        # POWER (0x2726) — uint16, unit: watt
-        power_w = int(power)
-        power_ch.write(struct.pack("<H", power_w), send_update=True)
-
-        # TEMPERATURE (0x2A6E) — sint16, unit: 0.01 °C
-        temp_hundredths = int(temperature * 100)
-        temperature_ch.write(struct.pack("<h", temp_hundredths), send_update=True)
-
-        # BATTERY LEVEL (0x2A19) — uint8, %
-        battery_level = estimate_battery_level(vbus)
-        battery_ch.write(struct.pack("B", battery_level), send_update=True)
-
-        # Debug print
-        print(
-            "V={:.4f}V  I={:.4f}A  P={:.3f}W  Temp={:.2f}C  Batt={}%"\
-            .format(vbus, current, power, temperature, battery_level)
-        )
-
-        await asyncio.sleep_ms(1000)
-
-# =========================================================
-# BLE Peripheral — Advertising / Connections
-# =========================================================
 
 async def peripheral_task():
+    global _authorized_peer
+
     while True:
         try:
+            # Advertise so phone can see "EBikeSensor"
             async with await aioble.advertise(
                 interval_us=_ADV_INTERVAL_US,
                 name="EBikeSensor",
                 services=[_BAT_SERV_UUID],
                 appearance=_ADV_APPEARANCE_GENERIC_SENSOR,
             ) as connection:
-                print("Connection from:", connection.device)
+                dev = connection.device
+                peer = _format_peer(dev)
+                print("Incoming connection from:", peer)
+
+                # First ever connection → treat as owner
+                if _authorized_peer is None:
+                    _authorized_peer = peer
+                    print("Authorized device set to:", _authorized_peer)
+                else:
+                    # Already have an owner: only allow that one
+                    if peer != _authorized_peer:
+                        print("Unauthorized device, disconnecting.")
+                        await connection.disconnect()
+                        await asyncio.sleep_ms(100)
+                        continue
+
+                print("Authorized device connected, awaiting disconnect...")
                 await connection.disconnected()
-                print("Disconnected")
+                print("Authorized device disconnected.")
+
         except Exception as exc:
-            print("BLE error:", exc)
-        finally:
-            await asyncio.sleep_ms(100)
+            print("BLE peripheral error:", exc)
+       
+       # Global variable updated by BLE writes
+        rx_value = None  
 
-# =========================================================
-# MAIN
-# =========================================================
 
-async def main():
-    t1 = asyncio.create_task(sensor_task())
-    t2 = asyncio.create_task(peripheral_task())
-    await asyncio.gather(t1, t2)
+        # Small pause before re-advertising
+        await asyncio.sleep_ms(100)
 
-asyncio.run(main())
