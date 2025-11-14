@@ -337,10 +337,16 @@ class INA228:
         return vbus
 
 
-    def get_temp_voltage(self):
+    def get_temperature(self):
+        """Return the INA228 die temperature in degrees Celsius."""
+
         conversion_factor = 7.8125e-3
         raw = self.read_register16(self.__INA228_DIETEMP)
-        temp = self.__convert2comp2float(raw, 16, conversion_factor)
+        return self.__convert2comp2float(raw, 16, conversion_factor)
+
+    def get_temp_voltage(self):
+        # Backwards-compatible wrapper for older code paths expecting this name.
+        temp = self.get_temperature()
         print('Die temp: ', temp)
         return temp
 
