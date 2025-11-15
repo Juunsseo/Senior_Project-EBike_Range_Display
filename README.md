@@ -1,4 +1,4 @@
-# EBike Sensor System – Raspberry Pi Pico W + INA228 + BLE + E-Ink Display
+# EBike Sensor System – Raspberry Pi Pico W + INA228 + BLE + E-Ink Display(In Progress)
 
 This project implements a fully embedded **E-bike telemetry module** using the **Raspberry Pi Pico W**, featuring:
 
