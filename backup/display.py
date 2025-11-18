@@ -12,7 +12,6 @@ sensor_data = {
     "c_range": 0.0, # km
     "dist": 0.0,    # km
     "battery": 0.0, # percentage
-    "connected": False,
 }
 
 DISPLAY_WIDTH = 280
@@ -80,11 +79,6 @@ def draw_section(fb, label, value_text, top_y, *, unit_text=None, value_scale=4,
         draw_right_aligned_text(fb, unit_text, unit_y, 0x00, unit_scale)
 
 
-def draw_connection_status(fb, connected):
-    if connected:
-        draw_right_aligned_text(fb, "Connected", 0, 0x00, scale=1, margin=4)
-
-
 def _format_pas(pas_value):
     if isinstance(pas_value, (int, float)):
         return f"{int(pas_value)}"
@@ -114,7 +108,6 @@ def render_dashboard(fb, data):
     battery_text = f"{battery_value:.0f}"
     pas_text = _format_pas(data.get("pas"))
 
-    draw_connection_status(fb, bool(data.get("connected")))
     draw_section(fb, "Speed", speed_text, 0, unit_text="mph")
     draw_section(fb, "Dist. remaining", dist_text, SECTION_HEIGHT, unit_text="miles")
     draw_section(fb, "Remain range", range_text, SECTION_HEIGHT * 2, unit_text="miles")

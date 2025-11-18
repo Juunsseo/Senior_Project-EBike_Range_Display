@@ -197,13 +197,9 @@ async def peripheral_task():
                         await asyncio.sleep_ms(100)
                         continue
 
-                sensor_data["connected"] = True
-                try:
-                    print("Authorized device connected, awaiting disconnect...")
-                    await connection.disconnected()
-                    print("Authorized device disconnected.")
-                finally:
-                    sensor_data["connected"] = False
+                print("Authorized device connected, awaiting disconnect...")
+                await connection.disconnected()
+                print("Authorized device disconnected.")
 
         except Exception as exc:
             print("BLE peripheral error:", exc)
