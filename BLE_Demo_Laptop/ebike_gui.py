@@ -37,8 +37,8 @@ def set_status(msg: str):
 
 
 # ---------- Decode helpers ----------
-def decode_voltage(b): return int.from_bytes(b, "little")
-def decode_current(b): return int.from_bytes(b, "little", signed=True)
+def decode_voltage(b): return int.from_bytes(b, "little") / 1000.0
+def decode_current(b): return int.from_bytes(b, "little", signed=True) / 1000.0
 def decode_power(b):   return int.from_bytes(b, "little")
 def decode_battery(b): return b[0]
 def decode_temp(b):    return int.from_bytes(b, "little", signed=True) / 100.0
