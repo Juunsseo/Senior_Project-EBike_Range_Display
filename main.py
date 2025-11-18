@@ -52,6 +52,7 @@ async def sensor_poll_task():
         sensor_data["voltage"] = v
         sensor_data["current"] = c * 1000
         sensor_data["power"] = p
+        sensor_data["battery"] = batt
 
         print(f"V={v:.3f}V I={c:.3f}A P={p:.2f}W")
         if rx_value is not None:
@@ -76,4 +77,3 @@ async def main():
 
 
 asyncio.run(main())
-
