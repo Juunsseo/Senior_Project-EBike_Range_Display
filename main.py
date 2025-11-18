@@ -46,7 +46,7 @@ async def sensor_poll_task():
         batt = estimate_battery(v)
 
         # Update BLE
-        ble_update(v, c, p, t, batt)
+        ble_update(v, c * 1000, p, t, batt)
 
         # Update display data
         sensor_data["voltage"] = v
