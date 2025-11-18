@@ -27,9 +27,9 @@ ina.shunt_tempco()
 # =========================================================
 # Battery % helper
 # =========================================================
-def estimate_battery(voltage):
-    MIN = 36.0
-    MAX = 54.0
+def estimate_battery(voltage): #depends on battery
+    MIN = 10.0
+    MAX = 25.0
     percent = int((voltage - MIN) / (MAX - MIN) * 100)
     return max(0, min(100, percent))
 
@@ -46,7 +46,7 @@ async def sensor_poll_task():
         batt = estimate_battery(v)
 
         # Update BLE
-        ble_update(v, c * 1000, p, t, batt)
+        ble_update(v, c * 1000, p*1000, t, batt)
 
         # Update display data
         sensor_data["voltage"] = v
