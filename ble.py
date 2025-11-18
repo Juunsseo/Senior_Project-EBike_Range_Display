@@ -135,81 +135,27 @@ async def rx_task():
 
         if isinstance(data, (bytes, bytearray)):
             rx_value = data
-            text = data.decode("utf-8", "ignore")
+            text = data.decode("utf-8", "ignore").strip()
             print("RX DATA =", text)
 
-            # Parse incoming payload into `pas`, `speed`, and `c_range`.
+            def parse_float(token):
+                try:
+                    return float(token)
+                except Exception:
+                    return 0.0
+
             pas_val = ""
             speed_val = 0.0
             c_range_val = 0.0
 
-            s = text.strip()
-
-            # Try JSON first (use ujson on MicroPython if available)
-            try:
-                import ujson as json
-            except Exception:
-                json = None
-
-            parsed = False
-            if json and s.startswith("{") and s.endswith("}"):
-                try:
-                    obj = json.loads(s)
-                    pas_val = obj.get("pas", obj.get("rx", pas_val))
-                    speed_val = float(obj.get("speed", speed_val) or 0)
-                    c_range_val = float(obj.get("c_range", c_range_val) or 0)
-                    parsed = True
-                except Exception:
-                    parsed = False
-
-            # Key:Value pairs like "pas:1,speed:12.3,c_range:45"
-            if not parsed and ":" in s and "," in s:
-                try:
-                    parts = [p.strip() for p in s.split(",")]
-                    for p in parts:
-                        if ":" in p:
-                            k, v = p.split(":", 1)
-                            k = k.strip().lower()
-                            v = v.strip()
-                            if k in ("pas", "rx"):
-                                pas_val = v
-                            elif k == "speed":
-                                try:
-                                    speed_val = float(v)
-                                except Exception:
-                                    pass
-                            elif k in ("c_range", "range", "crange"):
-                                try:
-                                    c_range_val = float(v)
-                                except Exception:
-                                    pass
-                    parsed = True
-                except Exception:
-                    parsed = False
-
-            # Simple CSV: pas,speed,c_range
-            if not parsed and "," in s:
-                try:
-                    parts = [p.strip() for p in s.split(",")]
-                    if len(parts) >= 1:
-                        pas_val = parts[0]
-                    if len(parts) >= 2:
-                        try:
-                            speed_val = float(parts[1])
-                        except Exception:
-                            pass
-                    if len(parts) >= 3:
-                        try:
-                            c_range_val = float(parts[2])
-                        except Exception:
-                            pass
-                    parsed = True
-                except Exception:
-                    parsed = False
-
-            # Fallback: single token -> treat as pas
-            if not parsed:
-                pas_val = s
+            if text:
+                parts = [p.strip() for p in text.split(",")]
+                if len(parts) >= 1:
+                    pas_val = parts[0]
+                if len(parts) >= 2:
+                    speed_val = parse_float(parts[1])
+                if len(parts) >= 3:
+                    c_range_val = parse_float(parts[2])
 
             # UPDATE DISPLAY SHARED VALUE
             sensor_data["pas"] = pas_val
@@ -260,4 +206,3 @@ async def peripheral_task():
 
         # Small pause before re-advertising
         await asyncio.sleep_ms(100)
-

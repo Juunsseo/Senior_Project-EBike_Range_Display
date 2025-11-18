@@ -155,37 +155,24 @@ while running:
                 else:
                     focused_field = "tx"
 
-            # Enter: if focused on one of the PAS/Speed/Range fields, send JSON
+            # Enter: if focused on one of the PAS/Speed/Range fields, send CSV
             elif event.key == pygame.K_RETURN:
                 if client is None:
                     set_status("Not connected")
                 else:
                     try:
                         if focused_field in ("pas", "speed", "range"):
-                            # build JSON payload from the three fields
-                            try:
-                                import json
-                            except Exception:
-                                json = None
+                            def sanitize_float(s):
+                                try:
+                                    return f"{float(s)}"
+                                except Exception:
+                                    return "0"
 
-                            payload_obj = {
-                                "pas": pas_field,
-                            }
-                            # include numeric fields if parseable, else send as string
-                            try:
-                                payload_obj["speed"] = float(speed_field) if speed_field != "" else 0.0
-                            except Exception:
-                                payload_obj["speed"] = speed_field
-                            try:
-                                payload_obj["c_range"] = float(range_field) if range_field != "" else 0.0
-                            except Exception:
-                                payload_obj["c_range"] = range_field
+                            pas_val = pas_field.strip() or "0"
+                            speed_val = sanitize_float(speed_field.strip())
+                            range_val = sanitize_float(range_field.strip())
 
-                            if json:
-                                payload = json.dumps(payload_obj)
-                            else:
-                                # fallback simple formatting
-                                payload = f"pas:{payload_obj['pas']},speed:{payload_obj['speed']},c_range:{payload_obj['c_range']}"
+                            payload = f"{pas_val},{speed_val},{range_val}"
 
                             future = asyncio.run_coroutine_threadsafe(
                                 client.write_gatt_char(RX_UUID, payload.encode()),
@@ -272,7 +259,7 @@ while running:
 
     # TX input line and PAS/Speed/Range fields
     draw_text(screen, "Tab to cycle fields. Enter sends focused field(s).", 20, HEIGHT - 140, FONT_SMALL)
-    draw_text(screen, "(Fields: TX, PAS, Speed, Range)", 20, HEIGHT - 120, FONT_SMALL)
+    draw_text(screen, "(Fields: PAS, Speed, Range)", 20, HEIGHT - 120, FONT_SMALL)
 
     # draw field labels and contents with focus marker
     def draw_field(label, value, x, y, field_name):
@@ -281,7 +268,6 @@ while running:
         color = (0, 255, 0) if is_focused else (200, 200, 200)
         draw_text(screen, txt, x, y, FONT_SMALL, color)
 
-    draw_field("TX", tx_buffer, 20, HEIGHT - 90, "tx")
     draw_field("PAS", pas_field, 20, HEIGHT - 60, "pas")
     draw_field("SPD", speed_field, 300, HEIGHT - 60, "speed")
     draw_field("RNG", range_field, 520, HEIGHT - 60, "range")
