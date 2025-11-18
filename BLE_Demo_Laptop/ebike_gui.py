@@ -24,6 +24,12 @@ sensor_state = {
     "temp": None,
 }
 
+# Local TX fields for PAS / Speed / Range
+pas_field = ""      # string (keeps as-is)
+speed_field = ""    # string (user types numeric)
+range_field = ""    # string (user types numeric)
+focused_field = "tx"  # one of: 'tx', 'pas', 'speed', 'range'
+
 status_text = "Idle"
 tx_buffer = ""          # text the user is typing to send to Pico
 client = None           # BleakClient instance (set by BLE thread)
@@ -138,28 +144,90 @@ while running:
             running = False
 
         elif event.type == pygame.KEYDOWN:
-            # Text input
-            if event.key == pygame.K_RETURN:
-                # Send tx_buffer to Pico
-                if client is not None and tx_buffer:
+            # Tab cycles focus between tx -> pas -> speed -> range -> tx
+            if event.key == pygame.K_TAB:
+                if focused_field == "tx":
+                    focused_field = "pas"
+                elif focused_field == "pas":
+                    focused_field = "speed"
+                elif focused_field == "speed":
+                    focused_field = "range"
+                else:
+                    focused_field = "tx"
+
+            # Enter: if focused on one of the PAS/Speed/Range fields, send JSON
+            elif event.key == pygame.K_RETURN:
+                if client is None:
+                    set_status("Not connected")
+                else:
                     try:
-                        future = asyncio.run_coroutine_threadsafe(
-                            client.write_gatt_char(RX_UUID, tx_buffer.encode()),
-                            loop
-                        )
-                        # ignore result; fire-and-forget
-                        set_status(f"Sent: {tx_buffer}")
-                        tx_buffer = ""
+                        if focused_field in ("pas", "speed", "range"):
+                            # build JSON payload from the three fields
+                            try:
+                                import json
+                            except Exception:
+                                json = None
+
+                            payload_obj = {
+                                "pas": pas_field,
+                            }
+                            # include numeric fields if parseable, else send as string
+                            try:
+                                payload_obj["speed"] = float(speed_field) if speed_field != "" else 0.0
+                            except Exception:
+                                payload_obj["speed"] = speed_field
+                            try:
+                                payload_obj["c_range"] = float(range_field) if range_field != "" else 0.0
+                            except Exception:
+                                payload_obj["c_range"] = range_field
+
+                            if json:
+                                payload = json.dumps(payload_obj)
+                            else:
+                                # fallback simple formatting
+                                payload = f"pas:{payload_obj['pas']},speed:{payload_obj['speed']},c_range:{payload_obj['c_range']}"
+
+                            future = asyncio.run_coroutine_threadsafe(
+                                client.write_gatt_char(RX_UUID, payload.encode()),
+                                loop
+                            )
+                            set_status(f"Sent: {payload}")
+                        else:
+                            # focused_field == 'tx' -> send free text
+                            if tx_buffer:
+                                future = asyncio.run_coroutine_threadsafe(
+                                    client.write_gatt_char(RX_UUID, tx_buffer.encode()),
+                                    loop
+                                )
+                                set_status(f"Sent: {tx_buffer}")
+                                tx_buffer = ""
+                            else:
+                                set_status("Empty message")
                     except Exception as e:
                         set_status(f"Send error: {e}")
-                else:
-                    set_status("Not connected or empty message")
+
             elif event.key == pygame.K_BACKSPACE:
-                tx_buffer = tx_buffer[:-1]
+                # Delete from focused field
+                if focused_field == "tx":
+                    tx_buffer = tx_buffer[:-1]
+                elif focused_field == "pas":
+                    pas_field = pas_field[:-1]
+                elif focused_field == "speed":
+                    speed_field = speed_field[:-1]
+                else:
+                    range_field = range_field[:-1]
+
             else:
-                # Add character to buffer (basic ASCII only)
+                # Add character to focused input (basic ASCII only)
                 if event.unicode.isprintable():
-                    tx_buffer += event.unicode
+                    if focused_field == "tx":
+                        tx_buffer += event.unicode
+                    elif focused_field == "pas":
+                        pas_field += event.unicode
+                    elif focused_field == "speed":
+                        speed_field += event.unicode
+                    else:
+                        range_field += event.unicode
 
     # Clear screen
     screen.fill((20, 20, 20))
@@ -202,9 +270,21 @@ while running:
         FONT_MED
     )
 
-    # TX input line
-    draw_text(screen, "Type message and press Enter to send to Pico:", 20, HEIGHT - 90, FONT_SMALL)
-    draw_text(screen, tx_buffer + "|", 20, HEIGHT - 60, FONT_SMALL, (0, 255, 0))
+    # TX input line and PAS/Speed/Range fields
+    draw_text(screen, "Tab to cycle fields. Enter sends focused field(s).", 20, HEIGHT - 140, FONT_SMALL)
+    draw_text(screen, "(Fields: TX, PAS, Speed, Range)", 20, HEIGHT - 120, FONT_SMALL)
+
+    # draw field labels and contents with focus marker
+    def draw_field(label, value, x, y, field_name):
+        is_focused = (focused_field == field_name)
+        txt = f"{label}: {value}" + ("|" if is_focused else "")
+        color = (0, 255, 0) if is_focused else (200, 200, 200)
+        draw_text(screen, txt, x, y, FONT_SMALL, color)
+
+    draw_field("TX", tx_buffer, 20, HEIGHT - 90, "tx")
+    draw_field("PAS", pas_field, 20, HEIGHT - 60, "pas")
+    draw_field("SPD", speed_field, 300, HEIGHT - 60, "speed")
+    draw_field("RNG", range_field, 520, HEIGHT - 60, "range")
 
     pygame.display.flip()
     clock.tick(30)

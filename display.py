@@ -8,7 +8,9 @@ sensor_data = {
     "voltage": 0.0,
     "current": 0.0,
     "power": 0.0,
-    "rx": "",    # <-- add this line
+    "pas": "",    # pedal-assist / incoming short text
+    "speed": 0.0,  # km/h (float)
+    "c_range": 0.0, # calculated range (km)
 
 }
 
@@ -42,8 +44,9 @@ async def display_task():
         v = sensor_data["voltage"]
         c = sensor_data["current"]
         p = sensor_data["power"]
-        rx = sensor_data["rx"]             # <--- new
-
+        pas = sensor_data.get("pas", "")
+        speed = sensor_data.get("speed", 0.0)
+        c_range = sensor_data.get("c_range", 0.0)
 
         epd.image1Gray.fill(0xFF)
 
@@ -51,7 +54,9 @@ async def display_task():
         draw_big_text(epd.image1Gray, f"V: {v:.3f}V", 10, 90, epd.black, 3)
         draw_big_text(epd.image1Gray, f"I: {c:.3f}mA", 10, 140, epd.black, 2)
         draw_big_text(epd.image1Gray, f"P: {p:.3f}W", 10, 190, epd.black, 3)
-        draw_big_text(epd.image1Gray, f"RX: {rx}", 10, 240, epd.black, 2)
+        draw_big_text(epd.image1Gray, f"PAS: {pas}", 10, 240, epd.black, 2)
+        draw_big_text(epd.image1Gray, f"SPD: {speed:.1f}km/h", 10, 280, epd.black, 2)
+        draw_big_text(epd.image1Gray, f"RNG: {c_range:.1f}km", 10, 320, epd.black, 2)
 
 
         epd.EPD_3IN7_1Gray_Display_Part(epd.buffer_1Gray)
