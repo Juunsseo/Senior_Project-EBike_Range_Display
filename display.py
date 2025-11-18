@@ -11,6 +11,7 @@ sensor_data = {
     "pas": "",    # pedal-assist / incoming short text
     "speed": 0.0,  # km/h (float)
     "c_range": 0.0, # calculated range (km)
+    "dist": 0.0,  # distance traveled (km)
 
 }
 
@@ -47,6 +48,7 @@ async def display_task():
         pas = sensor_data.get("pas", "")
         speed = sensor_data.get("speed", 0.0)
         c_range = sensor_data.get("c_range", 0.0)
+        dist = sensor_data.get("dist", 0.0)
 
         epd.image1Gray.fill(0xFF)
 
@@ -57,9 +59,9 @@ async def display_task():
         draw_big_text(epd.image1Gray, f"PAS: {pas}", 10, 240, epd.black, 2)
         draw_big_text(epd.image1Gray, f"SPD: {speed:.1f}km/h", 10, 280, epd.black, 2)
         draw_big_text(epd.image1Gray, f"RNG: {c_range:.1f}km", 10, 320, epd.black, 2)
+        draw_big_text(epd.image1Gray, f"DST: {dist:.1f}km", 10, 360, epd.black, 2)
 
 
         epd.EPD_3IN7_1Gray_Display_Part(epd.buffer_1Gray)
 
         await asyncio.sleep(1)   # update every 1 sec
-

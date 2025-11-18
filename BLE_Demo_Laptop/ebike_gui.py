@@ -24,11 +24,13 @@ sensor_state = {
     "temp": None,
 }
 
-# Local TX fields for PAS / Speed / Range
+# Local TX fields for PAS / Speed / Range / Dist
 pas_field = ""      # string (keeps as-is)
 speed_field = ""    # string (user types numeric)
 range_field = ""    # string (user types numeric)
-focused_field = "tx"  # one of: 'tx', 'pas', 'speed', 'range'
+dist_field = ""     # string (user types numeric)
+input_fields = ["tx", "pas", "speed", "range", "dist"]
+focused_field = "tx"  # one of: elements from input_fields
 
 status_text = "Idle"
 tx_buffer = ""          # text the user is typing to send to Pico
@@ -144,16 +146,10 @@ while running:
             running = False
 
         elif event.type == pygame.KEYDOWN:
-            # Tab cycles focus between tx -> pas -> speed -> range -> tx
+            # Tab cycles focus through TX, PAS, Speed, Range, Dist
             if event.key == pygame.K_TAB:
-                if focused_field == "tx":
-                    focused_field = "pas"
-                elif focused_field == "pas":
-                    focused_field = "speed"
-                elif focused_field == "speed":
-                    focused_field = "range"
-                else:
-                    focused_field = "tx"
+                current_index = input_fields.index(focused_field) if focused_field in input_fields else 0
+                focused_field = input_fields[(current_index + 1) % len(input_fields)]
 
             # Enter: if focused on one of the PAS/Speed/Range fields, send CSV
             elif event.key == pygame.K_RETURN:
@@ -161,7 +157,7 @@ while running:
                     set_status("Not connected")
                 else:
                     try:
-                        if focused_field in ("pas", "speed", "range"):
+                        if focused_field in ("pas", "speed", "range", "dist"):
                             def sanitize_float(s):
                                 try:
                                     return f"{float(s)}"
@@ -171,8 +167,9 @@ while running:
                             pas_val = pas_field.strip() or "0"
                             speed_val = sanitize_float(speed_field.strip())
                             range_val = sanitize_float(range_field.strip())
+                            dist_val = sanitize_float(dist_field.strip())
 
-                            payload = f"{pas_val},{speed_val},{range_val}"
+                            payload = f"{pas_val},{speed_val},{range_val},{dist_val}"
 
                             future = asyncio.run_coroutine_threadsafe(
                                 client.write_gatt_char(RX_UUID, payload.encode()),
@@ -201,8 +198,10 @@ while running:
                     pas_field = pas_field[:-1]
                 elif focused_field == "speed":
                     speed_field = speed_field[:-1]
-                else:
+                elif focused_field == "range":
                     range_field = range_field[:-1]
+                else:
+                    dist_field = dist_field[:-1]
 
             else:
                 # Add character to focused input (basic ASCII only)
@@ -213,8 +212,10 @@ while running:
                         pas_field += event.unicode
                     elif focused_field == "speed":
                         speed_field += event.unicode
-                    else:
+                    elif focused_field == "range":
                         range_field += event.unicode
+                    else:
+                        dist_field += event.unicode
 
     # Clear screen
     screen.fill((20, 20, 20))
@@ -257,9 +258,9 @@ while running:
         FONT_MED
     )
 
-    # TX input line and PAS/Speed/Range fields
+    # TX input line and PAS/Speed/Range/Dist fields
     draw_text(screen, "Tab to cycle fields. Enter sends focused field(s).", 20, HEIGHT - 140, FONT_SMALL)
-    draw_text(screen, "(Fields: PAS, Speed, Range)", 20, HEIGHT - 120, FONT_SMALL)
+    draw_text(screen, "(Fields: TX, PAS, Speed, Range, Dist)", 20, HEIGHT - 120, FONT_SMALL)
 
     # draw field labels and contents with focus marker
     def draw_field(label, value, x, y, field_name):
@@ -268,9 +269,11 @@ while running:
         color = (0, 255, 0) if is_focused else (200, 200, 200)
         draw_text(screen, txt, x, y, FONT_SMALL, color)
 
+    draw_field("TX", tx_buffer, 20, HEIGHT - 90, "tx")
     draw_field("PAS", pas_field, 20, HEIGHT - 60, "pas")
-    draw_field("SPD", speed_field, 300, HEIGHT - 60, "speed")
-    draw_field("RNG", range_field, 520, HEIGHT - 60, "range")
+    draw_field("SPD", speed_field, 200, HEIGHT - 60, "speed")
+    draw_field("RNG", range_field, 380, HEIGHT - 60, "range")
+    draw_field("DST", dist_field, 560, HEIGHT - 60, "dist")
 
     pygame.display.flip()
     clock.tick(30)

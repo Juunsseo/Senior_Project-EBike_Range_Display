@@ -147,6 +147,7 @@ async def rx_task():
             pas_val = ""
             speed_val = 0.0
             c_range_val = 0.0
+            dist_val = 0.0
 
             if text:
                 parts = [p.strip() for p in text.split(",")]
@@ -156,11 +157,14 @@ async def rx_task():
                     speed_val = parse_float(parts[1])
                 if len(parts) >= 3:
                     c_range_val = parse_float(parts[2])
+                if len(parts) >= 4:
+                    dist_val = parse_float(parts[3])
 
             # UPDATE DISPLAY SHARED VALUE
             sensor_data["pas"] = pas_val
             sensor_data["speed"] = speed_val
             sensor_data["c_range"] = c_range_val
+            sensor_data["dist"] = dist_val
 
         await asyncio.sleep(0.01)
 
