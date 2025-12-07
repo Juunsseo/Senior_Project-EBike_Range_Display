@@ -69,20 +69,35 @@ def draw_section(fb, label, value_text, top_y, *, unit_text=None, value_scale=4,
 
     label_height = 8 * label_scale
     value_height = 8 * value_scale
-    value_y = label_y + label_height + 6
-    if value_y + value_height > top_y + SECTION_HEIGHT - 4:
-        value_y = top_y + SECTION_HEIGHT - value_height - 4
+    section_bottom = top_y + SECTION_HEIGHT
+
+    # Reserve a bit of space under the value so it sits slightly above the units.
+    unit_height = 8 * unit_scale if unit_text else 0
+    unit_bottom_margin = 4
+    value_bottom_margin = 24
+
+    if unit_text:
+        unit_y = section_bottom - unit_height - unit_bottom_margin
+    else:
+        unit_y = section_bottom - unit_bottom_margin
+
+    # Keep the value below the label but above the units.
+    value_y = unit_y - value_height - 6
+    min_value_y = label_y + label_height + 6
+    if value_y < min_value_y:
+        value_y = min_value_y
 
     draw_centered_text(fb, value_text, value_y, 0x00, value_scale)
 
     if unit_text:
-        unit_y = value_y + value_height - 8 * unit_scale
         draw_right_aligned_text(fb, unit_text, unit_y, 0x00, unit_scale)
 
 
 def draw_connection_status(fb, connected):
     if connected:
-        draw_right_aligned_text(fb, "Connected", 0, 0x00, scale=1, margin=4)
+        draw_right_aligned_text(fb, "Connected", 4, 0x00, scale=1, margin=4)
+    else:
+        draw_right_aligned_text(fb, "Disconnected", 4, 0x00, scale=1, margin=4)
 
 
 def _format_pas(pas_value):
