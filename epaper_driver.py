@@ -167,11 +167,11 @@ class EPD_3in7:
         self.digital_write(self.cs_pin, 1)
         
     def ReadBusy(self):
-        print("e-Paper busy")
+        #print("e-Paper busy")
         while(self.digital_read(self.busy_pin) == 1):      #  0: idle, 1: busy
             self.delay_ms(10)
         self.delay_ms(200) 
-        print("e-Paper busy release")
+        #print("e-Paper busy release")
         
     def Load_LUT(self,lut):
         self.send_command(0x32)

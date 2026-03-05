@@ -100,17 +100,21 @@ def ble_update(voltage: float, current: float, power: float,
     v_mv = int(voltage * 1000)
     voltage_ch.write(struct.pack("<H", v_mv), send_update=True)
 
-    # CURRENT (0x2704) — sint16, mA
-    i_ma = int(current * 1000)
-    current_ch.write(struct.pack("<h", i_ma), send_update=True)
+    # CURRENT (0x2704) — sint32, uA (client divides by 1000 -> mA)
+    i_ua = int(current * 1_000_000)
+    if i_ua < -0x80000000:
+        i_ua = -0x80000000
+    if i_ua > 0x7FFFFFFF:
+        i_ua = 0x7FFFFFFF
+    current_ch.write(struct.pack("<i", i_ua), send_update=True)
 
-    # POWER (0x2726) — uint16, W
-    p_w = int(power)
-    if p_w < 0:
-        p_w = 0
-    if p_w > 0xFFFF:
-        p_w = 0xFFFF
-    power_ch.write(struct.pack("<H", p_w), send_update=True)
+    # POWER (0x2726) — uint32, mW (client divides by 1000 -> W)
+    p_mw = int(power * 1000)
+    if p_mw < 0:
+        p_mw = 0
+    if p_mw > 0xFFFFFFFF:
+        p_mw = 0xFFFFFFFF
+    power_ch.write(struct.pack("<I", p_mw), send_update=True)
 
     # TEMPERATURE (0x2A6E) — sint16, 0.01°C
     t_100 = int(temperature * 100)
@@ -166,7 +170,7 @@ async def rx_task():
             sensor_data["c_range"] = c_range_val
             sensor_data["dist"] = dist_val
 
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
 
 
 async def peripheral_task():
