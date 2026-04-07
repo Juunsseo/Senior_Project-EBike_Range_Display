@@ -1,14 +1,12 @@
-# main.py
+import _thread
 import uasyncio as asyncio
+import utime
 from machine import I2C, Pin
-from ina228 import INA228
 
+import ble as ble_module
 from ble import ble_update, peripheral_task
-from display import sensor_data, display_task
-from ble import rx_value
-from ble import rx_task
-
-
+from display import epd, render_dashboard
+from ina228 import INA228
 
 
 # =========================================================
@@ -16,22 +14,61 @@ from ble import rx_task
 # =========================================================
 i2c = I2C(0, sda=Pin(0), scl=Pin(1), freq=400000)
 ina = INA228(i2c, address=0x40, shunt_ohms=0.003, max_expected_current_a=25, adcrange=0)
-
 ina.configure()
+
+
+# =========================================================
+# Shared display state (protected across cores)
+# =========================================================
+_display_lock = _thread.allocate_lock()
+_display_state = {
+    "voltage": 0.0,
+    "current": 0.0,
+    "power": 0.0,
+    "pas": "",
+    "speed": 0.0,
+    "c_range": 0.0,
+    "dist": 0.0,
+    "battery": 0.0,
+    "connected": False,
+}
+
+
+def _display_update(**kwargs):
+    with _display_lock:
+        for key, value in kwargs.items():
+            _display_state[key] = value
+
+
+def _display_snapshot():
+    with _display_lock:
+        return dict(_display_state)
 
 
 # =========================================================
 # Battery % helper
 # =========================================================
-def estimate_battery(voltage): #depends on battery
-    MIN = 43.0
-    MAX = 53.0
-    percent = int((voltage - MIN) / (MAX - MIN) * 100)
+def estimate_battery(voltage):
+    min_v = 43.0
+    max_v = 53.0
+    percent = int((voltage - min_v) / (max_v - min_v) * 100)
     return max(0, min(100, percent))
 
 
 # =========================================================
-# SENSOR POLLING
+# Core 1 display worker (blocking e-paper calls stay off main loop)
+# =========================================================
+def display_worker():
+    while True:
+        snap = _display_snapshot()
+        epd.image1Gray.fill(0xFF)
+        render_dashboard(epd.image1Gray, snap)
+        epd.EPD_3IN7_1Gray_Display_Part(epd.buffer_1Gray)
+        utime.sleep_ms(1000)
+
+
+# =========================================================
+# SENSOR POLLING (core 0, asyncio)
 # =========================================================
 async def sensor_poll_task():
     while True:
@@ -41,89 +78,75 @@ async def sensor_poll_task():
         t = ina.get_die_temp_c()
         batt = estimate_battery(v)
 
-        # Update BLE
         ble_update(v, c, p, t, batt)
 
-        # Update display data
-        sensor_data["voltage"] = v
-        sensor_data["current"] = c * 1000
-        sensor_data["power"] = p
-        sensor_data["battery"] = batt
+        _display_update(
+            voltage=v,
+            current=c * 1000,
+            power=p,
+            battery=batt,
+            connected=bool(ble_module.sensor_data.get("connected")),
+        )
 
-        print(f"V={v:.3f}V I={c:.3f}A P={p:.2f}W")
-        if rx_value is not None:
-            num = int(rx_value.decode())
-            print("Phone sent:", num)
+        print("V={:.3f}V I={:.3f}A P={:.2f}W".format(v, c, p))
+        await asyncio.sleep(0.1)
 
+
+# =========================================================
+# RX task mirrored locally (replaces ble.rx_task)
+# =========================================================
+async def rx_task_new():
+    while True:
+        await ble_module.rx_ch.written()
+        data = ble_module.rx_ch.read()
+
+        if isinstance(data, (bytes, bytearray)):
+            ble_module.rx_value = data
+            text = data.decode("utf-8", "ignore").strip()
+            print("RX DATA =", text)
+
+            def parse_float(token):
+                try:
+                    return float(token)
+                except Exception:
+                    return 0.0
+
+            pas_val = ""
+            speed_val = 0.0
+            c_range_val = 0.0
+            dist_val = 0.0
+
+            if text:
+                parts = [p.strip() for p in text.split(",")]
+                if len(parts) >= 1:
+                    pas_val = parts[0]
+                if len(parts) >= 2:
+                    speed_val = parse_float(parts[1])
+                if len(parts) >= 3:
+                    c_range_val = parse_float(parts[2])
+                if len(parts) >= 4:
+                    dist_val = parse_float(parts[3])
+
+            _display_update(
+                pas=pas_val,
+                speed=speed_val,
+                c_range=c_range_val,
+                dist=dist_val,
+            )
 
         await asyncio.sleep(0.1)
-#Testing
-def dbg_dump(ina):
-    # raw reads
-    cfg = ina.read_register16(ina.REG_CONFIG)
-    adc = ina.read_register16(ina.REG_ADC_CONFIG)
-    shcal = ina.read_register16(ina.REG_SHUNT_CAL)
-    vsh_raw24 = ina.read_register24(ina.REG_VSHUNT)
-    cur_raw24 = ina.read_register24(ina.REG_CURRENT)
-    pwr_raw24 = ina.read_register24(ina.REG_POWER)
 
-    # extract 20-bit fields (bits 23-4)
-    vsh20 = vsh_raw24 >> 4
-    cur20 = cur_raw24 >> 4
-
-    # signed convert
-    if vsh20 & (1 << 19): vsh20 -= (1 << 20)
-    if cur20 & (1 << 19): cur20 -= (1 << 20)
-
-    # compute vshunt using datasheet LSB
-    adcrange = (cfg >> 4) & 1
-    vsh_lsb = 312.5e-9 if adcrange == 0 else 78.125e-9  # Table 7-9 :contentReference[oaicite:8]{index=8}
-    vsh_v = vsh20 * vsh_lsb
-
-    print("CONFIG=0x%04X ADCRANGE=%d" % (cfg, adcrange))
-    print("ADC_CONFIG=0x%04X" % adc)
-    print("SHUNT_CAL=0x%04X (%d)" % (shcal, shcal))
-    print("VSHUNT raw24=0x%06X raw20=%d  -> %.6f V (expect ~0.030V @10A,3mΩ)" % (vsh_raw24, vsh20, vsh_v))
-    print("CURRENT raw24=0x%06X raw20=%d" % (cur_raw24, cur20))
-    print("POWER raw24=0x%06X (%d)" % (pwr_raw24, pwr_raw24))
-    
-    cfg = ina.read_register16(ina.REG_CONFIG)
-    
-    shcal = ina.read_register16(ina.REG_SHUNT_CAL)
-    vsh = ina.read_register24(ina.REG_VSHUNT)
-    cur = ina.read_register24(ina.REG_CURRENT)
-    pwr = ina.read_register24(ina.REG_POWER)
-
-    print("CONFIG:", hex(cfg), "SHUNT_CAL:", hex(shcal))
-    print("VSHUNT raw24:", hex(vsh))
-    print("CURRENT raw24:", hex(cur))
-    print("POWER raw24:", hex(pwr))
-
-    vsh = ina.get_shunt_voltage_v()
-    ibus_from_vsh = vsh / 0.003
-    ibus_from_cur = ina.get_current_a()
-
-    print("VSHUNT(V):", vsh)
-    print("I from VSHUNT/R:", ibus_from_vsh)
-    print("I from CURRENT reg:", ibus_from_cur)
-    print("VBUS:", ina.get_bus_voltage_v())
-    print("P from reg:", ina.get_power_w())
-    print("P calc:", ina.get_bus_voltage_v() * ibus_from_cur)
 
 # =========================================================
-# MAIN EVENT LOOP
+# MAIN
 # =========================================================
 async def main():
+    _thread.start_new_thread(display_worker, ())
     await asyncio.gather(
         sensor_poll_task(),
         peripheral_task(),
-        display_task(),
-        rx_task(),
-        # <-- new
-
+        rx_task_new(),
     )
-#Debugging Function
-#dbg_dump(ina)
 
 
 asyncio.run(main())
