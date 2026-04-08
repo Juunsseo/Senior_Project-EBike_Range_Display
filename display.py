@@ -130,7 +130,7 @@ def render_dashboard(fb, data):
     pas_text = _format_pas(data.get("pas"))
 
     draw_connection_status(fb, bool(data.get("connected")))
-    draw_section(fb, "Speed", speed_text, 0, unit_text="mph")
+    #draw_section(fb, "Speed", speed_text, 0, unit_text="mph")
     draw_section(fb, "Dist. remaining", dist_text, SECTION_HEIGHT, unit_text="miles")
     draw_section(fb, "Remain range", range_text, SECTION_HEIGHT * 2, unit_text="miles")
     draw_section(fb, "Battery", battery_text, SECTION_HEIGHT * 3, unit_text="%", value_scale=4)
