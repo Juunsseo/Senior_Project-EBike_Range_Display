@@ -17,7 +17,7 @@ sensor_data = {
 
 DISPLAY_WIDTH = 280
 DISPLAY_HEIGHT = 480
-SECTION_COUNT = 5
+SECTION_COUNT = 4
 SECTION_HEIGHT = DISPLAY_HEIGHT // SECTION_COUNT
 KM_TO_MI = 1#0.621371
 
@@ -52,6 +52,10 @@ def draw_right_aligned_text(fb, text, y, color=0x00, scale=2, margin=8):
     x = max(DISPLAY_WIDTH - margin - width, 0)
     draw_big_text(fb, text, x, y, color, scale)
 
+def draw_left_aligned_text(fb, text, y, color=0x00, scale=2, margin=8):
+    width = len(text) * 8 * scale
+    x = min(DISPLAY_WIDTH - margin - width, 0)
+    draw_big_text(fb, text, x, y, color, scale)
 
 def draw_separator(fb, y, color=0x00, thickness=2):
     for dy in range(thickness):
@@ -94,8 +98,9 @@ def draw_section(fb, label, value_text, top_y, *, unit_text=None, value_scale=4,
 
 
 def draw_connection_status(fb, connected):
+    draw_left_aligned_text(fb, "Constant Cycle", 4, 0x00, scale=1, margin=4)
     if connected:
-        draw_right_aligned_text(fb, "Connected", 4, 0x00, scale=1, margin=4)
+        draw_right_aligned_text(fb, "Paired", 4, 0x00, scale=1, margin=4)
     else:
         draw_right_aligned_text(fb, "Disconnected", 4, 0x00, scale=1, margin=4)
 
@@ -130,14 +135,15 @@ def render_dashboard(fb, data):
     pas_text = _format_pas(data.get("pas"))
 
     draw_connection_status(fb, bool(data.get("connected")))
+    draw_separator(fb, 15, thickness=2)
     #draw_section(fb, "Speed", speed_text, 0, unit_text="mph")
-    draw_section(fb, "Dist. remaining", dist_text, SECTION_HEIGHT, unit_text="miles")
-    draw_section(fb, "Remain range", range_text, SECTION_HEIGHT * 2, unit_text="miles")
-    draw_section(fb, "Battery", battery_text, SECTION_HEIGHT * 3, unit_text="%", value_scale=4)
-    draw_section(fb, "Recommended PAS", pas_text, SECTION_HEIGHT * 4, value_scale=5)
+    draw_section(fb, "Dist. remaining", dist_text, 15, unit_text="miles")
+    draw_section(fb, "Remain range", range_text, SECTION_HEIGHT * 1 + 15, unit_text="miles")
+    draw_section(fb, "Battery", battery_text, SECTION_HEIGHT * 2 + 15, unit_text="%", value_scale=4)
+    draw_section(fb, "Recommended PAS", pas_text, SECTION_HEIGHT * 3 + 15, value_scale=5)
 
     for idx in range(1, SECTION_COUNT):
-        draw_separator(fb, idx * SECTION_HEIGHT, thickness=2)
+        draw_separator(fb, idx * SECTION_HEIGHT + 15, thickness=2)
 
 
 # E-ink initialization
@@ -153,3 +159,4 @@ async def display_task():
         render_dashboard(epd.image1Gray, sensor_data)
         epd.EPD_3IN7_1Gray_Display_Part(epd.buffer_1Gray)
         await asyncio.sleep(1)
+
